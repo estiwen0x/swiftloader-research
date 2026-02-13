@@ -1,67 +1,69 @@
-#include <windows.h>
+#include "Core.h"
 #include <iostream>
 #include <string>
-#include "Core.h"
 
-void PrintBanner() {
-    std::wcout << L"--- SwiftLoader v2.0 ---" << std::endl;
+void Banner() {
+    std::wcout << L"-------------------------------------------" << std::endl;
+    std::wcout << L" SwiftLoader v2.1 - Senior Edition" << std::endl;
+    std::wcout << L" [Manual PE Mapper / Remote Thread]" << std::endl;
+    std::wcout << L"-------------------------------------------" << std::endl;
 }
 
 int wmain(int argc, wchar_t** argv) {
-    PrintBanner();
+    Banner();
 
     if (argc < 2) {
-        std::wcout << L"Usage: " << argv[0] << L" <payload.dll> [target_exe]" << std::endl;
-        return 1;
+        std::wcout << L"(!) Usage: SwiftLoader.exe <payload.dll> [target_process.exe]" << std::endl;
+        std::wcout << L"(!) If no target specified, I'll try to inject into myself." << std::endl;
+        return -1;
     }
 
-    std::wstring payloadPath = argv[1];
-    std::wstring targetProcess;
+    std::wstring dll_path = argv[1];
+    std::wstring target_exe;
 
     if (argc > 2) {
-        targetProcess = argv[2];
+        target_exe = argv[2];
     } else {
-        // Self-injection if no process specified
-        wchar_t currentPath[MAX_PATH];
-        GetModuleFileNameW(NULL, currentPath, MAX_PATH);
-        targetProcess = std::wstring(currentPath);
-        size_t lastSlash = targetProcess.find_last_of(L"\\/");
-        if (lastSlash != std::wstring::npos) {
-            targetProcess = targetProcess.substr(lastSlash + 1);
-        }
+        // Just use current process name for self-injection test
+        wchar_t buf[MAX_PATH];
+        GetModuleFileNameW(NULL, buf, MAX_PATH);
+        std::wstring self(buf);
+        target_exe = self.substr(self.find_last_of(L"\\/") + 1);
+        std::wcout << L"[*] No target provided, using self: " << target_exe << std::endl;
     }
 
-    std::wcout << L"[*] Targeting: " << targetProcess << std::endl;
-    std::wcout << L"[*] Payload:   " << payloadPath << std::endl;
+    std::wcout << L"[*] Attempting injection..." << std::endl;
+    std::wcout << L"    - DLL: " << dll_path << std::endl;
+    std::wcout << L"    - EXE: " << target_exe << std::endl;
 
-    uint32_t result = SwiftLoader::Inject(targetProcess, payloadPath);
+    uint32_t status = SwiftLoader::PerformInjection(target_exe, dll_path);
 
-    switch (result) {
-        case SL_SUCCESS:
-            std::wcout << L"[+] Injection completed successfully." << std::endl;
-            break;
-        case SL_ERR_FILE:
-            std::wcerr << L"[-] Error: Could not load payload file." << std::endl;
-            break;
-        case SL_ERR_INVALID_PE:
-            std::wcerr << L"[-] Error: Payload is not a valid PE file." << std::endl;
-            break;
-        case SL_ERR_ARCH_MISMATCH:
-            std::wcerr << L"[-] Error: Architecture mismatch (Payload vs Loader)." << std::endl;
-            break;
-        case SL_ERR_PROC_OPEN:
-            std::wcerr << L"[-] Error: Could not find or open target process." << std::endl;
-            break;
-        case SL_ERR_MEM_ALLOC:
-            std::wcerr << L"[-] Error: Memory allocation failed in target process." << std::endl;
-            break;
-        case SL_ERR_INJECTION:
-            std::wcerr << L"[-] Error: Remote thread execution failed." << std::endl;
-            break;
-        default:
-            std::wcerr << L"[-] Error: Unknown failure (Code: " << result << L")" << std::endl;
-            break;
+    switch (status) {
+    case SL_OK:
+        std::wcout << L"[+] Success! Check your target process." << std::endl;
+        break;
+    case SL_ERR_FILE_IO:
+        std::wcerr << L"[-] Error: Could not read DLL file. Check path/permissions." << std::endl;
+        break;
+    case SL_ERR_INVALID_PE:
+        std::wcerr << L"[-] Error: File is not a valid PE image." << std::endl;
+        break;
+    case SL_ERR_ARCH_MISMATCH:
+        std::wcerr << L"[-] Error: Arch mismatch! Don't mix x86/x64." << std::endl;
+        break;
+    case SL_ERR_PROC_NOT_FOUND:
+        std::wcerr << L"[-] Error: Target process not found or access denied." << std::endl;
+        break;
+    case SL_ERR_MEM_FAIL:
+        std::wcerr << L"[-] Error: VirtualAllocEx failed in remote process." << std::endl;
+        break;
+    case SL_ERR_THREAD_FAIL:
+        std::wcerr << L"[-] Error: CreateRemoteThread failed. AV/EDR might be blocking." << std::endl;
+        break;
+    default:
+        std::wcerr << L"[-] Error: Unknown failure (Code: " << status << L")" << std::endl;
+        break;
     }
 
-    return (result == SL_SUCCESS) ? 0 : 1;
+    return (status == SL_OK) ? 0 : (int)status;
 }
