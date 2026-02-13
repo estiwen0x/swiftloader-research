@@ -1,0 +1,15 @@
+.vs/
+*.user
+*.suo
+*.pdb
+*.obj
+*.log
+*.tlog
+*.lastbuildstate
+*.idb
+*.exe
+*.dll
+Debug/
+Release/
+x64/
+x86/
