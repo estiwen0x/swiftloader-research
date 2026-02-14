@@ -19,6 +19,9 @@ A production-grade, lightweight PE mapping engine rewritten for stability and pe
 4. **Relocation Fixed**: Processes the Base Relocation Table.
 5. **Import Resolution**: Manually populates the IAT using `GetProcAddress`.
 
+
+## ⚠️ Educational Disclaimer
+This project is for **educational and research purposes only**. It is designed to demonstrate low-level systems programming concepts and Windows OS internals. The author is not responsible for any misuse.
 ## 🔹 Usage
 
 ```powershell
@@ -36,3 +39,6 @@ Code,Meaning,Analysis
 4,Access Denied,Check process permissions (Try Admin).
 5,Memory Fail,Unable to allocate memory in target space.
 6,Thread Fail,Failed to spawn remote thread (CreateRemoteThread).
+
+---
+
