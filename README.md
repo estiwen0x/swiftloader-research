@@ -1,9 +1,5 @@
 # SwiftLoader 
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/estiwen0x/estiwen0x/main/estiwen.png" alt="banner" width="100%">
-</p>
-
 A production-grade, lightweight PE mapping engine rewritten for stability and performance. Focused on understanding Windows internals through manual image mapping.
 
 ---
