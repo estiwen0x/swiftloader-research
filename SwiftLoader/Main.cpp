@@ -4,7 +4,7 @@
 
 int wmain(int argc, wchar_t** argv) {
     std::wcout << L"-------------------------------------------" << std::endl;
-    std::wcout << L" SwiftLoader v2.2 " << std::endl;
+    std::wcout << L" SwiftLoader v2.3 " << std::endl;
     std::wcout << L"-------------------------------------------" << std::endl;
 
     if (argc < 2) {
@@ -18,7 +18,6 @@ int wmain(int argc, wchar_t** argv) {
     if (argc > 2) {
         target_exe = argv[2];
     } else {
-        // target yoksa kendine inject etsin test amacli
         wchar_t buf[MAX_PATH];
         GetModuleFileNameW(NULL, buf, MAX_PATH);
         std::wstring self(buf);
@@ -26,8 +25,8 @@ int wmain(int argc, wchar_t** argv) {
         std::wcout << L"[*] Target yok, self-inject: " << target_exe << std::endl;
     }
 
-    std::wcout << L"[*] Islem basliyor..." << std::endl;
-    uint32_t status = SwiftLoader::PerformInjection(target_exe, dll_path);
+    std::wcout << L"[*] basliyorum..." << std::endl;
+    uint32_t status = SwiftLoader::InjectDLL(target_exe, dll_path);
 
     switch (status) {
     case SL_OK:

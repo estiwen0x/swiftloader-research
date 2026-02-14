@@ -72,11 +72,9 @@ uint32_t SwiftLoader::FindProcessId(const std::wstring& name) {
     return pid;
 }
 
-uint32_t SwiftLoader::PerformInjection(const std::wstring& target_exe, const std::wstring& dll_path) {
-    // 1. Yetki yukseltme denemesi
+uint32_t SwiftLoader::InjectDLL(const std::wstring& target_exe, const std::wstring& dll_path) {
     if (!SetDebugPrivilege(true)) {
-        // her zaman kritik degil ama loglamakta fayda var
-        std::wcerr << L"(!) SeDebugPrivilege ayarlanamadi, admin olmayabilirsin." << std::endl;
+        std::wcerr << L"(!) debug yetkisi yok, devam ediyorum" << std::endl;
     }
 
     std::ifstream file(dll_path, std::ios::binary | std::ios::ate);
@@ -103,7 +101,6 @@ uint32_t SwiftLoader::PerformInjection(const std::wstring& target_exe, const std
     uint32_t pid = FindProcessId(target_exe);
     if (!pid) return SL_ERR_PROC_NOT_FOUND;
 
-    // AI isi PROCESS_ALL_ACCESS yerine minimal mask kullaniyoruz
     DWORD access = PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ;
     HANDLE h_proc = OpenProcess(access, FALSE, pid);
     if (!h_proc || h_proc == INVALID_HANDLE_VALUE) return SL_ERR_PROC_NOT_FOUND;
@@ -119,10 +116,8 @@ uint32_t SwiftLoader::PerformInjection(const std::wstring& target_exe, const std
         return SL_ERR_MEM_FAIL;
     }
 
-    // headers copy
     WriteProcessMemory(h_proc, remote_base, buffer.data(), nt->OptionalHeader.SizeOfHeaders, NULL);
 
-    // sections mapping
     auto section = IMAGE_FIRST_SECTION(nt);
     for (int i = 0; i < nt->FileHeader.NumberOfSections; i++, section++) {
         if (section->SizeOfRawData > 0) {
@@ -132,7 +127,6 @@ uint32_t SwiftLoader::PerformInjection(const std::wstring& target_exe, const std
         }
     }
 
-    // setup stub context
     LOADER_CONTEXT ctx = { 0 };
     ctx.ptr_base = remote_base;
     ctx.pLoadLibraryA = LoadLibraryA;
@@ -153,10 +147,9 @@ uint32_t SwiftLoader::PerformInjection(const std::wstring& target_exe, const std
 
     HANDLE h_thread = CreateRemoteThread(h_proc, NULL, 0, (LPTHREAD_START_ROUTINE)d_stub, d_ctx, 0, NULL);
     if (h_thread) {
-        // INFINITE bekleme yapmiyoruz, bazen stub patlarsa sonsuz loopa girmeyelim
         DWORD wait_res = WaitForSingleObject(h_thread, 20000); 
         if (wait_res == WAIT_TIMEOUT) {
-            std::wcerr << L"(!) Stub zaman asimina ugradi." << std::endl;
+            std::wcerr << L"(!) thread timeout, kestim" << std::endl;
             TerminateThread(h_thread, 0);
         }
         
@@ -164,7 +157,6 @@ uint32_t SwiftLoader::PerformInjection(const std::wstring& target_exe, const std
         GetExitCodeThread(h_thread, &exit_code);
         CloseHandle(h_thread);
     } else {
-        // cleanup simetrisi
         VirtualFreeEx(h_proc, remote_base, 0, MEM_RELEASE);
         VirtualFreeEx(h_proc, d_ctx, 0, MEM_RELEASE);
         VirtualFreeEx(h_proc, d_stub, 0, MEM_RELEASE);
@@ -172,7 +164,6 @@ uint32_t SwiftLoader::PerformInjection(const std::wstring& target_exe, const std
         return SL_ERR_THREAD_FAIL;
     }
 
-    // section protectionlari son haliyle setleyelim - senior level detay
     section = IMAGE_FIRST_SECTION(nt);
     for (int i = 0; i < nt->FileHeader.NumberOfSections; i++, section++) {
         DWORD old_prot;
@@ -180,8 +171,6 @@ uint32_t SwiftLoader::PerformInjection(const std::wstring& target_exe, const std
         VirtualProtectEx(h_proc, (uint8_t*)remote_base + section->VirtualAddress, section->Misc.VirtualSize, new_prot, &old_prot);
     }
 
-    // intentional leak: d_ctx ve d_stub'i bazen debug icin birakiyoruz 
-    // ama productionda temizlemek daha dogru.
     VirtualFreeEx(h_proc, d_ctx, 0, MEM_RELEASE);
     VirtualFreeEx(h_proc, d_stub, 0, MEM_RELEASE);
 
@@ -194,7 +183,6 @@ DWORD __stdcall RemoteStub(PLOADER_CONTEXT ctx) {
     auto dos = (PIMAGE_DOS_HEADER)base;
     auto nt = (PIMAGE_NT_HEADERS)(base + dos->e_lfanew);
 
-    // 1. Relocations - boundary checkleri ekledik
     auto delta = base - nt->OptionalHeader.ImageBase;
     if (delta != 0) {
         auto reloc_dir = &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC];
@@ -203,7 +191,6 @@ DWORD __stdcall RemoteStub(PLOADER_CONTEXT ctx) {
             auto reloc_end = (uintptr_t)reloc + reloc_dir->Size;
 
             while (reloc->VirtualAddress != 0 && (uintptr_t)reloc < reloc_end) {
-                // sanity check: block size sacma olmamali
                 if (reloc->SizeOfBlock < sizeof(IMAGE_BASE_RELOCATION)) break;
 
                 uint32_t count = (reloc->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(WORD);
@@ -220,7 +207,6 @@ DWORD __stdcall RemoteStub(PLOADER_CONTEXT ctx) {
         }
     }
 
-    // 2. Imports
     auto imp_dir = &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
     if (imp_dir->Size > 0) {
         auto desc = (PIMAGE_IMPORT_DESCRIPTOR)(base + imp_dir->VirtualAddress);
@@ -243,7 +229,6 @@ DWORD __stdcall RemoteStub(PLOADER_CONTEXT ctx) {
         }
     }
 
-    // 3. TLS Callbacks - asil senior isi burasi
     auto tls_dir = &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS];
     if (tls_dir->Size > 0) {
         auto tls = (PIMAGE_TLS_DIRECTORY)(base + tls_dir->VirtualAddress);
@@ -256,13 +241,12 @@ DWORD __stdcall RemoteStub(PLOADER_CONTEXT ctx) {
         }
     }
 
-    // 4. Entry Point
     if (nt->OptionalHeader.AddressOfEntryPoint != 0) {
         auto entry = (BOOL(WINAPI*)(void*, uint32_t, void*))(base + nt->OptionalHeader.AddressOfEntryPoint);
         entry((void*)base, DLL_PROCESS_ATTACH, NULL);
     }
 
-    return 1; // basarili
+    return 1;
 }
 
 void RemoteStubEnd() {}
